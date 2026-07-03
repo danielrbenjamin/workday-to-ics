@@ -105,6 +105,14 @@
   .fld input:focus,.addbar input:focus{outline:2px solid var(--focus);outline-offset:1px;border-color:var(--amber-dim)}
   .addbar{display:flex;gap:10px;margin-top:16px}
   .addbar input{flex:1;min-width:0}
+  .or-sep{display:flex;align-items:center;gap:10px;margin:14px 0;color:var(--paper-dim);font-size:11px}
+  .or-sep::before,.or-sep::after{content:"";height:1px;background:var(--line);flex:1}
+  .addupload{display:flex;align-items:center;gap:10px;border:1px dashed var(--line);border-radius:4px;background:var(--panel2);padding:12px 14px;cursor:pointer;color:var(--paper-dim);font-size:12.5px;transition:border-color .15s,color .15s}
+  .addupload:hover,.addupload.over{border-color:var(--amber);color:var(--paper)}
+  .addupload svg{color:var(--amber);flex-shrink:0}
+  .addupload b{color:var(--paper);font-weight:400}
+  .addupload input{display:none}
+  .addupload:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
   .roster{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
   .chip{display:inline-flex;align-items:center;gap:8px;background:var(--panel2);border:1px solid var(--line);border-radius:14px;padding:4px 6px 4px 12px;font-size:12.5px}
   .chip .dot{width:8px;height:8px;border-radius:50%}
@@ -157,6 +165,8 @@
   .callegend .sw{width:10px;height:10px;border-radius:2px}
   .cal-free{position:absolute;left:3px;right:3px;border:1px dashed rgba(127,176,105,.5);background:rgba(127,176,105,.08);border-radius:3px;box-sizing:border-box}
 
+  .cal-ev.shared{border-left-width:4px;border-left-style:solid}
+  #ev-popover .pop-shared{font-size:9.5px;text-transform:uppercase;letter-spacing:.1em;color:#fff;background:#ff5da2;border-radius:8px;padding:1px 7px;vertical-align:middle;font-weight:600}
   #ev-popover{position:absolute;z-index:50;width:250px;max-width:calc(100vw - 24px);background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--amber);border-radius:5px;padding:12px 14px;box-shadow:0 8px 28px rgba(0,0,0,.5)}
   #ev-popover .pop-x{position:absolute;top:6px;right:8px;background:none;border:none;color:var(--paper-dim);font-family:var(--mono);font-size:16px;line-height:1;cursor:pointer;padding:2px 4px}
   #ev-popover .pop-x:hover{color:var(--paper)}
@@ -265,6 +275,12 @@
             <input id="addcode" type="text" placeholder="Paste a friend’s share code…" autocomplete="off">
             <button class="act" id="addbtn">Add</button>
           </div>
+          <div class="or-sep"><span>or</span></div>
+          <label class="addupload" id="addupload" tabindex="0" role="button">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4M12 4l-4 4M12 4l4 4"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+            <span>Upload others’ <b>View My Courses</b> exports — you can pick several at once</span>
+            <input type="file" id="addfiles" accept=".xlsx,.xls" multiple>
+          </label>
           <div id="addmsg" class="status" aria-live="polite"></div>
 
           <div id="roster" class="roster"></div>
@@ -274,20 +290,20 @@
       <div id="compare-out" class="hidden">
         <div class="panel" style="margin-top:14px">
           <div class="panel-head">
-            <span class="t">combined week</span>
+            <span class="t" id="overlay-title">combined week</span>
             <span class="n"><select id="overlay-term" class="mini"></select></span>
           </div>
           <div style="padding:14px 16px"><div id="overlay-grid"></div></div>
         </div>
 
         <div class="panel" style="margin-top:14px">
-          <div class="panel-head"><span class="t">shared classes</span><span class="n" id="shared-n"></span></div>
+          <div class="panel-head"><span class="t" id="shared-title">shared classes</span><span class="n" id="shared-n"></span></div>
           <div style="padding:14px 16px"><div id="shared-body"></div></div>
         </div>
 
         <div class="panel" style="margin-top:14px">
           <div class="panel-head">
-            <span class="t">common free time</span>
+            <span class="t" id="free-title">common free time</span>
             <span class="n">
               <select id="freeterm" class="mini"></select>
               <span class="muted" style="margin-left:8px">8am–8pm, weekdays</span>
@@ -444,6 +460,27 @@ function repairRef(ws){
   ws["!ref"] = XLSX.utils.encode_range(range);
 }
 
+// Pull the student's name from the enrollment-description column, dropping the
+// student number for privacy. e.g. "Daniel Benjamin (86482742) - Faculty..." -> "Daniel Benjamin"
+function extractStudentName(wb){
+  try{
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    repairRef(ws);
+    const rows = XLSX.utils.sheet_to_json(ws, {header:1, blankrows:false, defval:""});
+    const hIdx = rows.findIndex(r => r.some(c => String(c).trim()==="Meeting Patterns"));
+    if(hIdx < 0) return "";
+    const header = rows[hIdx].map(c=>String(c).trim());
+    const cCourse = header.indexOf("Course Listing");
+    const cDesc = cCourse > 0 ? cCourse - 1 : 0;
+    for(let i=hIdx+1;i<rows.length;i++){
+      const desc = String(rows[i][cDesc]||"").trim();
+      const m = desc.match(/^([^()\-\d][^()]*?)\s*(?:\(\d+\)|-|$)/);
+      if(m && m[1].trim().length>1) return m[1].trim();
+    }
+  }catch{}
+  return "";
+}
+
 function parseWorkbook(wb){
   const ws = wb.Sheets[wb.SheetNames[0]];
   repairRef(ws);
@@ -501,19 +538,30 @@ function parseWorkbook(wb){
 
 /* ---------- schedule comparison: busy blocks + share codes ---------- */
 // Compact busy block = [term, dayIdx, startMin, endMin, code]
+let MY_INSTRUCTORS = [];   // interned instructor names for the user's own schedule
+
 function sectionsToBlocks(sections){
   const blocks = [];
+  const instructors = [];              // interned unique instructor strings
+  const idxOf = name => {
+    if(!name) return -1;
+    let i = instructors.indexOf(name);
+    if(i<0){ i = instructors.length; instructors.push(name); }
+    return i;
+  };
   sections.forEach(s=>{
+    const ii = idxOf((s.instructor||"").trim());
     s.patterns.forEach(p=>{
       const t1 = p.t1.h*60 + p.t1.m, t2 = p.t2.h*60 + p.t2.m;
       p.days.forEach(day=>{
-        blocks.push([s.term, DAYIDX[day], t1, t2, s.code]);
+        blocks.push([s.term, DAYIDX[day], t1, t2, s.code, ii]);
       });
     });
   });
-  // dedupe identical blocks
+  // dedupe identical blocks (compare all fields incl. instructor index)
   const seen = new Set();
-  return blocks.filter(b=>{ const k=b.join("|"); if(seen.has(k))return false; seen.add(k); return true; });
+  const deduped = blocks.filter(b=>{ const k=b.join("|"); if(seen.has(k))return false; seen.add(k); return true; });
+  return { blocks: deduped, instructors };
 }
 
 async function deflateRaw(str){
@@ -557,6 +605,7 @@ async function decodePerson(code){
   else throw new Error("Unrecognized share code.");
   const p = JSON.parse(json);
   if(!p || typeof p.n!=="string" || !Array.isArray(p.b)) throw new Error("Share code isn’t a valid schedule.");
+  if(!Array.isArray(p.i)) p.i = [];   // older codes / no-instructor codes
   return p;
 }
 
@@ -636,7 +685,14 @@ function renderWeekGrid(container, events, opts={}){
       const leftPct = col*widthPct;
       const compact = h < 30 ? " compact" : "";
       const color = e.color || "var(--amber)";
-      html += `<div class="cal-ev${compact}" data-ev="${e.__i}" role="button" tabindex="0" style="top:${top}px;height:${h}px;left:calc(${leftPct}% + 3px);width:calc(${widthPct}% - 6px);border-left-color:${color};background:${hexA(color,.16)};color:var(--paper)">`
+      // shared tiles: stack each member's color as a striped left edge
+      let edge = `border-left-color:${color}`;
+      if(e.shared && Array.isArray(e.memberColors) && e.memberColors.length>1){
+        const n=e.memberColors.length;
+        const stops=e.memberColors.map((c,idx)=>`${c} ${(idx*100/n)}%, ${c} ${((idx+1)*100/n)}%`).join(", ");
+        edge = `border-left-color:transparent;border-image:linear-gradient(to bottom, ${stops}) 1`;
+      }
+      html += `<div class="cal-ev${compact}${e.shared?" shared":""}" data-ev="${e.__i}" role="button" tabindex="0" style="top:${top}px;height:${h}px;left:calc(${leftPct}% + 3px);width:calc(${widthPct}% - 6px);${edge};background:${hexA(color, e.shared?0.28:0.16)};color:var(--paper)">`
         + `<span class="c">${esc(e.code)}</span><span class="k">${esc(e.label||e.kind||"")}</span></div>`;
     });
     html += `</div>`;
@@ -654,16 +710,18 @@ function popOutside(e){ const p=$("#ev-popover"); if(p && !p.contains(e.target) 
 function openPopover(anchor, ev){
   closePopover();
   const d = ev.detail || {};
+  const isCompare = Array.isArray(d.people);
   const rows = [];
-  if(d.person) rows.push(["Who", d.person]);
+  if(isCompare) rows.push([d.people.length>1?"Who":"Who", d.people.join(", ")]);
+  else if(d.person) rows.push(["Who", d.person]);
   if(d.title)  rows.push(["Course", d.title]);
   if(d.section) rows.push(["Section", d.section]);
-  if(d.kind && !d.person) rows.push(["Type", d.kind]);
+  if(d.kind && !isCompare && !d.person) rows.push(["Type", d.kind]);
   rows.push(["When", `${d.day?d.day+" ":""}${d.time||""}${d.alternate?" · alternate weeks":""}`]);
   const locs = (d.locations && d.locations.length) ? d.locations : (d.location ? [d.location] : []);
   if(locs.length === 1) rows.push(["Where", locs[0]]);
   else if(locs.length > 1) rows.push(["Where", locs.map((l,i)=>`• ${l}`).join("\n")]);
-  else if(!d.person) rows.push(["Where", "—"]);
+  else if(!isCompare && !d.person) rows.push(["Where", "—"]);
   if(d.instructor) rows.push(["Instructor", d.instructor]);
   if(d.term) rows.push(["Term", "Term "+d.term]);
 
@@ -671,10 +729,10 @@ function openPopover(anchor, ev){
   pop.id = "ev-popover";
   pop.style.borderLeftColor = ev.color || "var(--amber)";
   pop.innerHTML = `<button class="pop-x" aria-label="Close">×</button>`
-    + `<div class="pop-code">${esc(ev.code)}</div>`
+    + `<div class="pop-code">${esc(ev.code)}${d.shared?` <span class="pop-shared">shared</span>`:""}</div>`
     + rows.map(([k,v])=>`<div class="pop-row"><span class="pk">${k}</span><span class="pv" style="white-space:pre-line">${esc(v)}</span></div>`).join("")
     + (locs.length > 1 ? `<div class="pop-note">Room changes partway through the term.</div>` : "")
-    + (ev.detail && ev.detail.person ? `<div class="pop-note">Shared codes don’t include room or instructor.</div>` : "");
+    + (isCompare ? `<div class="pop-note">Shared codes don’t include room.</div>` : "");
   document.body.appendChild(pop);
   pop.querySelector(".pop-x").onclick = closePopover;
 
@@ -801,7 +859,9 @@ function render(){
   });
 
   // enable comparison: extract busy blocks and add the user
-  MY_BLOCKS = sectionsToBlocks(SECTIONS);
+  const mine = sectionsToBlocks(SECTIONS);
+  MY_BLOCKS = mine.blocks;
+  MY_INSTRUCTORS = mine.instructors;
   upsertMe();
 }
 
@@ -924,20 +984,20 @@ function displayName(person){
 function upsertMe(){
   if(!MY_BLOCKS) return;
   const existing = PEOPLE.find(p=>p.me);
-  if(existing){ existing.n = myName(); existing.b = MY_BLOCKS; }
-  else PEOPLE.unshift({id:nextId(), n:myName(), b:MY_BLOCKS, me:true});
+  if(existing){ existing.n = myName(); existing.b = MY_BLOCKS; existing.i = MY_INSTRUCTORS; }
+  else PEOPLE.unshift({id:nextId(), n:myName(), b:MY_BLOCKS, i:MY_INSTRUCTORS, me:true, sel:true});
   renderCompare();
 }
 
 async function copyMyCode(){
   if(!MY_BLOCKS){ shareMsg("Upload your schedule first.", "err"); return; }
-  const code = await encodePerson({n:myName(), b:MY_BLOCKS});
+  const code = await encodePerson({n:myName(), b:MY_BLOCKS, i:MY_INSTRUCTORS});
   try{ await navigator.clipboard.writeText(code); shareMsg(`Code copied (${code.length} chars). Send it to a friend.`, "ok"); }
   catch{ shareMsg("Couldn’t access clipboard — here’s your code: "+code, "err"); }
 }
 async function copyMyLink(){
   if(!MY_BLOCKS){ shareMsg("Upload your schedule first.", "err"); return; }
-  const code = await encodePerson({n:myName(), b:MY_BLOCKS});
+  const code = await encodePerson({n:myName(), b:MY_BLOCKS, i:MY_INSTRUCTORS});
   const url = location.origin + location.pathname + "#s=" + code;
   try{ await navigator.clipboard.writeText(url); shareMsg("Share link copied. Anyone who opens it sees your schedule added to their comparison.", "ok"); }
   catch{ shareMsg("Couldn’t access clipboard — link: "+url, "err"); }
@@ -954,7 +1014,7 @@ async function addCode(raw){
     // Two different people with the same name are allowed in.
     const sig = p.n+"|"+JSON.stringify(p.b);
     if(PEOPLE.some(q=>(q.n+"|"+JSON.stringify(q.b))===sig)){ addMsg(`That exact schedule for ${p.n} is already added.`, "ok"); return; }
-    PEOPLE.push({id:nextId(), n:p.n, b:p.b});
+    PEOPLE.push({id:nextId(), n:p.n, b:p.b, i:Array.isArray(p.i)?p.i:[], sel:true});
     $("#addcode").value="";
     const dupName = PEOPLE.filter(q=>q.n===p.n).length > 1;
     addMsg(dupName ? `Added ${p.n}. (Another ${p.n} is already here — I’ll number them.)` : `Added ${p.n}.`, "ok");
@@ -962,29 +1022,81 @@ async function addCode(raw){
   }catch(err){ addMsg(err.message||"That code didn’t decode.", "err"); }
 }
 
+// Add one or more people by parsing their uploaded .xlsx exports.
+function addExportFiles(fileList){
+  const files = [...(fileList||[])];
+  if(!files.length) return;
+  let added=0, done=0, failed=[];
+  const finish = ()=>{
+    if(done<files.length) return;
+    let msg = added ? `Added ${added} ${added===1?"person":"people"} from ${added===1?"an export":"exports"}.` : "";
+    if(failed.length) msg += (msg?" ":"") + `Couldn’t read: ${failed.join(", ")}.`;
+    addMsg(msg || "Nothing added.", failed.length && !added ? "err" : "ok");
+    if(added) renderCompare();
+  };
+  files.forEach(file=>{
+    const reader = new FileReader();
+    reader.onload = ev=>{
+      try{
+        const wb = XLSX.read(new Uint8Array(ev.target.result), {type:"array"});
+        const sections = parseWorkbook(wb);
+        const { blocks, instructors } = sectionsToBlocks(sections);
+        let name = extractStudentName(wb);
+        if(!name) name = file.name.replace(/\.(xlsx|xls)$/i,"").replace(/[_-]+/g," ").trim() || "Someone";
+        // reject exact-duplicate schedule under same name
+        const sig = name+"|"+JSON.stringify(blocks);
+        if(PEOPLE.some(q=>(q.n+"|"+JSON.stringify(q.b))===sig)){ /* skip silent dup */ }
+        else { PEOPLE.push({id:nextId(), n:name, b:blocks, i:instructors, sel:true}); added++; }
+      }catch(err){ failed.push(file.name); }
+      done++; finish();
+    };
+    reader.onerror = ()=>{ failed.push(file.name); done++; finish(); };
+    reader.readAsArrayBuffer(file);
+  });
+}
+
 function removePerson(id){ const i=PEOPLE.findIndex(p=>p.id===id); if(i>=0) PEOPLE.splice(i,1); renderCompare(); }
+function toggleSelect(id){ const p=PEOPLE.find(q=>q.id===id); if(p) p.sel=!p.sel; renderCompare(); }
+function selectedPeople(){ return PEOPLE.filter(p=>p.sel); }
 
 function esc(s){ return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 
 function renderCompare(){
-  // roster chips
+  // roster chips — checkbox includes/excludes from the comparison; × removes entirely
   const r = $("#roster"); r.innerHTML="";
   PEOPLE.forEach((p,i)=>{
     const chip=document.createElement("span");
-    chip.className="chip"+(p.me?" me":"");
+    chip.className="chip"+(p.me?" me":"")+(p.sel?" on":" off");
     const dn = esc(displayName(p));
-    chip.innerHTML=`<span class="dot" style="background:${colorFor(i)}"></span>${p.me?"<b style='font-weight:400'>"+dn+"</b> (you)":dn}`;
-    if(!p.me){ const x=document.createElement("button"); x.textContent="×"; x.title="Remove"; x.onclick=()=>removePerson(p.id); chip.appendChild(x); }
+    const check=document.createElement("button");
+    check.className="chk"; check.setAttribute("role","checkbox"); check.setAttribute("aria-checked", p.sel?"true":"false");
+    check.title = p.sel ? "Included — click to exclude" : "Excluded — click to include";
+    check.innerHTML = `<span class="box" style="--pc:${colorFor(i)}">${p.sel?"✓":""}</span>`
+      + `<span class="nm">${p.me?"<b style='font-weight:400'>"+dn+"</b> (you)":dn}</span>`;
+    check.onclick = ()=>toggleSelect(p.id);
+    chip.appendChild(check);
+    if(!p.me){ const x=document.createElement("button"); x.className="rm"; x.textContent="×"; x.title="Remove"; x.onclick=()=>removePerson(p.id); chip.appendChild(x); }
     r.appendChild(chip);
   });
 
   const out = $("#compare-out");
   $("#compare-badge").textContent = PEOPLE.length;
-  if(PEOPLE.length < 2){ out.classList.add("hidden"); return; }
+  const sel = selectedPeople();
+  if(sel.length < 1){
+    out.classList.add("hidden");
+    if(PEOPLE.length >= 1) addMsg("Select at least one person to view.", "");
+    return;
+  }
   out.classList.remove("hidden");
+  const solo = sel.length === 1;
+  const poss = solo ? (sel[0].me ? "your" : "their") : "";
 
-  const terms = [...new Set(PEOPLE.flatMap(p=>p.b.map(b=>b[0])))].sort();
-  const nameById = id => { const p=PEOPLE.find(q=>q.id===id); return p?esc(displayName(p)):"?"; };
+  // adapt panel titles to the number of people
+  $("#overlay-title").textContent = solo ? `${poss} week` : "combined week";
+  $("#shared-title").textContent  = solo ? `${poss} classes` : "shared classes";
+  $("#free-title").textContent    = solo ? `${poss} free time` : "common free time";
+
+  const terms = [...new Set(sel.flatMap(p=>p.b.map(b=>b[0])))].sort();
 
   // overlay-week term selector
   const ot=$("#overlay-term"); const prevO=ot.value;
@@ -992,70 +1104,124 @@ function renderCompare(){
   if(terms.map(String).includes(prevO)) ot.value=prevO;
   renderOverlay();
 
-  // shared classes across all terms
+  // classes: for one person show their class list; for many show shared classes
   const sb = $("#shared-body"); sb.innerHTML="";
   let sharedCount=0;
-  terms.forEach(t=>{
-    const shared = sharedClasses(PEOPLE, t);
-    shared.forEach(sc=>{
-      sharedCount++;
-      const row=document.createElement("div"); row.className="shared-row";
-      const pills=sc.whoIds.map(id=>`<span class="whopill">${nameById(id)}</span>`).join("");
-      row.innerHTML=`<span class="termtag t${t}">T${t}</span><span class="code">${esc(sc.code)}</span>
-        <span class="muted" style="flex:1"></span><span class="whopills">${pills}</span>`;
-      sb.appendChild(row);
+  const nameById = id => { const p=sel.find(q=>q.id===id); return p?esc(p.me?"You":displayName(p)):"?"; };
+  if(solo){
+    const p = sel[0];
+    // unique course codes per term for this person, with instructor if known
+    const instrs = Array.isArray(p.i)?p.i:[];
+    const byTerm = {};
+    p.b.forEach(b=>{ const [term,, , ,code,ii]=b; (byTerm[term]=byTerm[term]||new Map()).set(code, (ii!=null&&ii>=0)?instrs[ii]||"":""); });
+    Object.keys(byTerm).map(Number).sort().forEach(t=>{
+      [...byTerm[t].keys()].sort().forEach(code=>{
+        sharedCount++;
+        const instr = byTerm[t].get(code);
+        const row=document.createElement("div"); row.className="shared-row";
+        row.innerHTML=`<span class="termtag t${t}">T${t}</span><span class="code">${esc(code)}</span>
+          <span class="muted" style="flex:1">${instr?" · "+esc(instr):""}</span>`;
+        sb.appendChild(row);
+      });
     });
-  });
-  $("#shared-n").textContent = sharedCount ? `${sharedCount} in common` : "";
-  if(!sharedCount) sb.innerHTML=`<p class="muted" style="margin:0">No classes in common across everyone added.</p>`;
+    $("#shared-n").textContent = sharedCount ? `${sharedCount} ${sharedCount===1?"class":"classes"}` : "";
+    if(!sharedCount) sb.innerHTML=`<p class="muted" style="margin:0">No classes found for this person.</p>`;
+  } else {
+    terms.forEach(t=>{
+      const shared = sharedClasses(sel, t);
+      shared.forEach(sc=>{
+        sharedCount++;
+        const row=document.createElement("div"); row.className="shared-row";
+        // "You" pill first
+        const ids = sc.whoIds.slice().sort((a,b)=>{
+          const pa=sel.find(q=>q.id===a), pb=sel.find(q=>q.id===b);
+          return (pb&&pb.me?1:0)-(pa&&pa.me?1:0);
+        });
+        const pills=ids.map(id=>`<span class="whopill">${nameById(id)}</span>`).join("");
+        row.innerHTML=`<span class="termtag t${t}">T${t}</span><span class="code">${esc(sc.code)}</span>
+          <span class="muted" style="flex:1"></span><span class="whopills">${pills}</span>`;
+        sb.appendChild(row);
+      });
+    });
+    $("#shared-n").textContent = sharedCount ? `${sharedCount} in common` : "";
+    if(!sharedCount) sb.innerHTML=`<p class="muted" style="margin:0">No classes in common across everyone selected.</p>`;
+  }
 
   // free-time term selector
-  const sel=$("#freeterm"); const prev=sel.value;
-  sel.innerHTML=terms.map(t=>`<option value="${t}">Term ${t}</option>`).join("");
-  if(terms.map(String).includes(prev)) sel.value=prev;
+  const ftSel=$("#freeterm"); const prev=ftSel.value;
+  ftSel.innerHTML=terms.map(t=>`<option value="${t}">Term ${t}</option>`).join("");
+  if(terms.map(String).includes(prev)) ftSel.value=prev;
   renderFree();
 }
 
-// Overlaid week: everyone's classes as colored blocks + common-free shading
+// Overlaid week: selected people's classes as colored blocks + common-free shading
 function renderOverlay(){
   const t = +($("#overlay-term").value || 1);
-  const events = [];
-  PEOPLE.forEach((p,i)=>{
-    const color = colorFor(i);
+  const sel = selectedPeople();
+
+  // collect each person's classes, then merge tiles that share
+  // day + time + course code + instructor across people.
+  const groups = new Map();
+  sel.forEach(p=>{
+    const pColor = colorFor(PEOPLE.indexOf(p));
+    const instrs = Array.isArray(p.i) ? p.i : [];
     p.b.filter(b=>b[0]===t).forEach(b=>{
-      const [,d,start,end,code] = b;
-      if(d>=1 && d<=5) events.push({
-        day:d, start, end, code, label:displayName(p), color,
-        detail:{
-          person:displayName(p), term:t,
-          time:`${minToLabel(start)} – ${minToLabel(end)}`,
-          day:DAYNAMES[d]
-        }
-      });
+      const [,d,start,end,code,ii] = b;
+      if(d<1 || d>5) return;
+      const instructor = (ii!=null && ii>=0 && instrs[ii]) ? instrs[ii] : "";
+      const key = `${d}|${start}|${end}|${code}|${instructor}`;
+      if(!groups.has(key)) groups.set(key, {d, start, end, code, instructor, members:[]});
+      groups.get(key).members.push({person:p, color:pColor, name:displayName(p), me:!!p.me});
     });
   });
+
+  const events = [];
+  groups.forEach(g=>{
+    const shared = g.members.length > 1;
+    // order names with "You" first
+    const ordered = g.members.slice().sort((a,b)=>(b.me?1:0)-(a.me?1:0));
+    const names = ordered.map(m=>m.me ? "You" : m.name);
+    // single-person tile keeps that person's color; shared tile gets a distinct shared color
+    const color = shared ? "#ff5da2" : g.members[0].color;
+    events.push({
+      day:g.d, start:g.start, end:g.end, code:g.code,
+      label: shared ? names.join(", ") : names[0],
+      color, shared,
+      memberColors: ordered.map(m=>m.color),
+      detail:{
+        people: names, shared, term:t, instructor:g.instructor,
+        time:`${minToLabel(g.start)} – ${minToLabel(g.end)}`,
+        day:DAYNAMES[g.d]
+      }
+    });
+  });
+
   // common free blocks
   const freeBlocks=[];
   for(let d=1; d<=5; d++){
-    commonFree(PEOPLE, t, d, 8*60, 20*60).forEach(f=>freeBlocks.push({day:d, start:f[0], end:f[1]}));
+    commonFree(sel, t, d, 8*60, 20*60).forEach(f=>freeBlocks.push({day:d, start:f[0], end:f[1]}));
   }
   renderWeekGrid($("#overlay-grid"), events, {freeBlocks});
   // legend
+  const solo = sel.length === 1;
   const leg = document.createElement("div"); leg.className="callegend";
-  leg.innerHTML = PEOPLE.map((p,i)=>`<span class="li"><span class="sw" style="background:${colorFor(i)}"></span>${esc(displayName(p))}</span>`).join("")
-    + `<span class="li"><span class="sw" style="background:transparent;border:1px dashed rgba(127,176,105,.6)"></span>everyone free</span>`;
+  leg.innerHTML = sel.map(p=>`<span class="li"><span class="sw" style="background:${colorFor(PEOPLE.indexOf(p))}"></span>${esc(displayName(p))}</span>`).join("")
+    + (solo ? "" : `<span class="li"><span class="sw" style="background:#ff5da2"></span>shared class</span>`)
+    + `<span class="li"><span class="sw" style="background:transparent;border:1px dashed rgba(127,176,105,.6)"></span>${solo?"free time":"everyone free"}</span>`;
   $("#overlay-grid").appendChild(leg);
 }
 
 function renderFree(){
   const t = +$("#freeterm").value;
+  const sel = selectedPeople();
+  const solo = sel.length === 1;
   const fb=$("#free-body"); fb.innerHTML="";
   for(let d=1; d<=5; d++){
-    const free=commonFree(PEOPLE, t, d, 8*60, 20*60);
+    const free=commonFree(sel, t, d, 8*60, 20*60);
     const day=document.createElement("div"); day.className="freeday";
     const slots = free.length
       ? free.map(f=>`<span class="slot">${minToLabel(f[0])} – ${minToLabel(f[1])}</span>`).join("")
-      : `<span class="slot none">no shared free time</span>`;
+      : `<span class="slot none">${solo?"booked all day":"no shared free time"}</span>`;
     day.innerHTML=`<div class="dname">${DAYNAMES[d]}</div><div class="freeslots">${slots}</div>`;
     fb.appendChild(day);
   }
@@ -1070,12 +1236,20 @@ $("#myname").addEventListener("input", ()=>{ if(PEOPLE.find(p=>p.me)) upsertMe()
 $("#freeterm").addEventListener("change", renderFree);
 $("#overlay-term").addEventListener("change", renderOverlay);
 
+// upload others' exports
+const addUpload = $("#addupload"), addFiles = $("#addfiles");
+addFiles.addEventListener("change", e=>{ addExportFiles(e.target.files); addFiles.value=""; });
+addUpload.addEventListener("keydown", e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); addFiles.click(); }});
+["dragenter","dragover"].forEach(ev=> addUpload.addEventListener(ev, e=>{ e.preventDefault(); addUpload.classList.add("over"); }));
+["dragleave","drop"].forEach(ev=> addUpload.addEventListener(ev, e=>{ e.preventDefault(); addUpload.classList.remove("over"); }));
+addUpload.addEventListener("drop", e=>{ if(e.dataTransfer.files.length) addExportFiles(e.dataTransfer.files); });
+
 // inbound share link (#s=CODE) — add that person on load
 window.addEventListener("DOMContentLoaded", async ()=>{
   const m = location.hash.match(/[#&]s=([^&]+)/);
   if(m){
     try{ const p = await decodePerson(decodeURIComponent(m[1]));
-      PEOPLE.push({id:nextId(), n:p.n, b:p.b});
+      PEOPLE.push({id:nextId(), n:p.n, b:p.b, i:Array.isArray(p.i)?p.i:[], sel:true});
       $("#results").classList.remove("hidden");
       switchTab("compare");
       $("#share-panel").scrollIntoView({behavior:"smooth"});
